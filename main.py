@@ -24,6 +24,36 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 CONFIG_FILE = os.path.expanduser("./transplay_config.json")
 
 
+class StatusWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.layout = QHBoxLayout()
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(10)
+
+        # Icon + Text für Statusanzeige
+        self.icon_label = QLabel()
+        self.text_label = QLabel()
+        self.text_label.setStyleSheet("font-size: 14pt; color: #444;")
+
+        self.layout.addWidget(self.icon_label)
+        self.layout.addWidget(self.text_label)
+        self.setLayout(self.layout)
+
+    def update_status(self, icon: str, text: str):
+        """
+        icon: 'search' | 'warn' | 'done'
+        text: Statusmeldung
+        """
+        icon_map = {
+            'search': '🔍',
+            'warn': '⚠️',
+            'done': '✅'
+        }
+        self.icon_label.setText(icon_map.get(icon, ''))
+        self.text_label.setText(text)
+
+
 class TranscriptEntry:
     """Repräsentiert einen einzelnen Transkriptionseintrag mit Start- und Endzeit sowie Text"""
 
@@ -341,7 +371,7 @@ class AudioTranscriptApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("🎧 TransPlay: Audio & Kapitel")
-        self.setGeometry(100, 100, 500, 900)
+        self.setGeometry(100, 100, 800, 700)
 
         self.player = QMediaPlayer()
         self.timer = QTimer(self)
@@ -364,6 +394,8 @@ class AudioTranscriptApp(QMainWindow):
             save_last_paths(self.last_paths)
 
         self.transcript_lower = []
+        self.status_widget = StatusWidget()
+        self.statusBar().addPermanentWidget(self.status_widget, 1)
 
     def init_ui(self):
         self.setStyleSheet("* { font-size: 24pt; }")
@@ -456,6 +488,9 @@ class AudioTranscriptApp(QMainWindow):
         self.increase_font_button.setFixedSize(60, 40)
         self.decrease_font_button.setFixedSize(60, 40)
 
+        self.status_widget = StatusWidget()
+        self.statusBar().addPermanentWidget(self.status_widget, 1)
+
     def open_files(self):
         audio_file, _ = QFileDialog.getOpenFileName(self, "Wähle Audio-Datei", self.last_paths.get("audio", ""),
                                                     "Audio Files (*.mp3 *.wav)")
@@ -520,35 +555,32 @@ class AudioTranscriptApp(QMainWindow):
             self.transcript_list.addItem(entry.text)
 
     def live_search_with_markers(self):
-        """Optimierte Live-Suche mit Sprungmarken und effizientem UI-Update"""
+        """Live-Suche mit Sprungmarken auf der Timeline"""
         text = self.search_bar.text().strip()
         self.search_bar.setFocus()
 
-        if len(text) >= 3:
-            self.timeline_widget.clear_markers()
-            search_term = text.lower()
-
-            # Suchergebnisse und Marker sammeln
-            results = []
-            for i, entry in enumerate(self.transcript):
-                if search_term in entry.text.lower():
-                    results.append({'index': i, 'entry': entry, 'text': entry.text})
-                    marker_position = int(entry.start * 1000)
-                    self.timeline_widget.add_marker(marker_position, entry.text[:50])
-
-            # Setze Treffer für Navigationsleiste
-            self.enhanced_search.set_search_results(results)
-
-            # Setze Highlight im Model und aktualisiere Widgets
-            self.model.set_search_term(text)
-            self.refresh_visible_items()
-
-        elif len(text) == 0:
+        # Nur bei sinnvoller Länge und Buchstaben/Zahlen
+        if len(text) < 3 or not any(c.isalnum() for c in text):
             self.timeline_widget.clear_markers()
             self.enhanced_search.clear_results()
             self.model.set_search_term("")
             self.refresh_visible_items()
+            return
 
+        self.timeline_widget.clear_markers()
+        search_term = text.lower()
+
+        results = []
+        for i, entry in enumerate(self.transcript):
+            words = [w for w in entry.text.lower().split() if len(w) > 2]
+            if any(search_term in word for word in words):
+                results.append({'index': i, 'entry': entry, 'text': entry.text})
+                marker_position = int(entry.start * 1000)
+                self.timeline_widget.add_marker(marker_position, entry.text[:50])
+
+        self.enhanced_search.set_search_results(results)
+        self.model.set_search_term(text)
+        self.refresh_visible_items()
         self.search_bar.setFocus()
         self.search_text()
 
@@ -581,44 +613,56 @@ class AudioTranscriptApp(QMainWindow):
         pattern = re.compile(re.escape(text), re.IGNORECASE)
 
         total = len(self.transcript)
+        matches = 0
+        enable_highlight = total < 2000
+
         counter_label = QLabel("")
         self.statusBar().addPermanentWidget(counter_label)
+        counter_label.setText("🔍 Suche gestartet…")
+        QApplication.processEvents()
 
-        self.transcript_list.setUpdatesEnabled(False)
+        items = []
+        for i, entry in enumerate(self.transcript):
+            item_text = entry.text
+            item = QListWidgetItem()
+            item.setData(Qt.UserRole, item_text)
+            item.setTextAlignment(Qt.AlignLeft)
 
-        if total > 2000:
-            # Kein Highlighting bei großen Transkripten
-            for entry in self.transcript:
-                item = QListWidgetItem(entry.text)
-                item.setData(Qt.UserRole, entry.text)
-                item.setTextAlignment(Qt.AlignLeft)
-                self.transcript_list.addItem(item)
-            counter_label.setText("⚠ Zu viele Einträge für Markierung")
-        else:
-            for i, entry in enumerate(self.transcript):
-                item_text = entry.text
-                item = QListWidgetItem()
-                item.setData(Qt.UserRole, item_text)
-                item.setTextAlignment(Qt.AlignLeft)
-
-                if text:
-                    # Alle Vorkommen markieren
-                    highlighted = re.sub(
-                        pattern,
-                        lambda m: f'<span style="background-color:#66bb66;">{m.group(0)}</span>',
-                        item_text
-                    )
-                    item.setData(Qt.DisplayRole, '')
-                    self.transcript_list.addItem(item)
-                    self.transcript_list.setItemWidget(item, self.create_highlight_label(highlighted))
+            if text:
+                match = pattern.search(item_text)
+                if match:
+                    matches += 1
+                    if enable_highlight:
+                        highlighted = re.sub(
+                            pattern,
+                            lambda m: f'<span style="background-color:#66bb66;">{m.group(0)}</span>',
+                            item_text
+                        )
+                        item.setData(Qt.DisplayRole, '')
+                        item.setData(Qt.UserRole + 1, highlighted)
+                    else:
+                        item.setText(item_text)
                 else:
                     item.setText(item_text)
-                    self.transcript_list.addItem(item)
+            else:
+                item.setText(item_text)
 
-                if i % 100 == 0 or i == total - 1:
-                    counter_label.setText(f"🔍 Suche: {i + 1}/{total}")
-                    QApplication.processEvents()
+            items.append(item)
 
+        # Ergebnisstatus
+        if not enable_highlight:
+            counter_label.setText("⚠ Zu viele Einträge für Markierung")
+        elif matches:
+            counter_label.setText(f"✅ {matches} Treffer")
+        else:
+            counter_label.setText("Keine Treffer")
+
+        self.transcript_list.setUpdatesEnabled(False)
+        for item in items:
+            self.transcript_list.addItem(item)
+            if enable_highlight and item.data(Qt.DisplayRole) == '':
+                html = item.data(Qt.UserRole + 1)
+                self.transcript_list.setItemWidget(item, self.create_highlight_label(html))
         self.transcript_list.setUpdatesEnabled(True)
         QTimer.singleShot(3000, lambda: self.statusBar().removeWidget(counter_label))
 
@@ -722,6 +766,7 @@ class AudioTranscriptApp(QMainWindow):
 Viel Freude mit TransPlay!
 """
         )
+        help_box.setStyleSheet("font-size: 18pt;")
         help_box.setStandardButtons(QMessageBox.Ok)
         help_box.exec_()
 
