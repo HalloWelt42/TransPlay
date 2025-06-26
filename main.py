@@ -432,6 +432,9 @@ class AudioTranscriptApp(QMainWindow):
         """Erweiterte Live-Suche mit Sprungmarken"""
         text = self.search_bar.text().strip()
 
+        # Fokus nicht verlieren
+        self.search_bar.setFocus()
+
         if len(text) >= 3:
             # Suche durchführen
             results = []
@@ -440,20 +443,19 @@ class AudioTranscriptApp(QMainWindow):
             for i, entry in enumerate(self.transcript):
                 if text.lower() in entry.text.lower():
                     results.append({'index': i, 'entry': entry, 'text': entry.text})
-                    # Marker auf Timeline hinzufügen
                     marker_position = int(entry.start * 1000)  # Convert to ms
                     self.timeline_widget.add_marker(marker_position, entry.text[:50])
 
-            # Suchergebnisse an Enhanced Search Widget weitergeben
             self.enhanced_search.set_search_results(results)
-
-            # Normale Suche für Liste
             self.search_text()
 
         elif len(text) == 0:
             self.timeline_widget.clear_markers()
             self.enhanced_search.clear_results()
             self.restore_full_transcript()
+
+        # Fokus erneut setzen (zur Sicherheit)
+        self.search_bar.setFocus()
 
     def update_highlight(self):
         if self.user_is_dragging or not self.transcript:
