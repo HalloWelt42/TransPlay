@@ -4,6 +4,9 @@
 
 Ideal für Interviews, Podcasts, Vorträge oder Barrierefreiheit.
 
+![Bildschirmfoto 2025-06-26 um 18.13.49.png](media/Bildschirmfoto%202025-06-26%20um%2018.13.49.png)
+
+
 ## Funktionen
 
 * ▶ Wiedergabe von MP3- und WAV-Dateien mit synchronisiertem Transkript
