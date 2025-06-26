@@ -5,17 +5,20 @@ import json
 import re
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QAction, QListWidget,
-    QVBoxLayout, QWidget, QLineEdit, QHBoxLayout, QPushButton, QLabel, QSlider, QMessageBox, QListWidgetItem
+    QVBoxLayout, QWidget, QLineEdit, QHBoxLayout, QPushButton, QLabel, QSlider, QMessageBox, QListWidgetItem,
 )
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtCore import QUrl, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor
+from PyQt5.QtCore import Qt, QAbstractListModel, QModelIndex
+from PyQt5.QtWidgets import QLabel
 
 CONFIG_FILE = os.path.expanduser("./transplay_config.json")
 
 
 class TranscriptEntry:
     """Repräsentiert einen einzelnen Transkriptionseintrag mit Start- und Endzeit sowie Text"""
+
     def __init__(self, start, end, text):
         self.start = self.to_seconds(start)
         self.end = self.to_seconds(end)
@@ -43,6 +46,60 @@ def load_last_paths():
         with open(CONFIG_FILE, 'r') as f:
             return json.load(f)
     return {}
+
+
+class TranscriptListModel(QAbstractListModel):
+    def __init__(self, entries, font_size=24, parent=None):
+        super().__init__(parent)
+        self.entries = entries  # Liste von TranscriptEntry
+        self.search_term = ""
+        self.font_size = font_size
+
+    def rowCount(self, parent=QModelIndex()):
+        return len(self.entries)
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid():
+            return None
+        entry = self.entries[index.row()]
+        if role == Qt.DisplayRole:
+            return entry.text
+        if role == Qt.UserRole:
+            return entry
+        return None
+
+    def set_search_term(self, term):
+        self.search_term = term.lower()
+        self.dataChanged.emit(self.index(0), self.index(self.rowCount() - 1))
+
+    def get_highlighted_label(self, index):
+        if not index.isValid():
+            return QLabel()
+        entry = self.entries[index.row()]
+        text = entry.text
+
+        label = QLabel()
+        label.setWordWrap(True)
+        label.setStyleSheet(f"font-size: {self.font_size}pt;")
+
+        if self.search_term and self.search_term in text.lower():
+            pattern = re.compile(re.escape(self.search_term), re.IGNORECASE)
+            match = pattern.search(text)
+            if match:
+                highlighted = (
+                        text[:match.start()] +
+                        '<span style="background-color:#66bb66;">' +
+                        text[match.start():match.end()] +
+                        '</span>' +
+                        text[match.end():]
+                )
+                label.setTextFormat(Qt.RichText)
+                label.setText(highlighted)
+            else:
+                label.setText(text)
+        else:
+            label.setText(text)
+        return label
 
 
 class TimelineMarker(QWidget):
@@ -200,7 +257,6 @@ class EnhancedSearchWidget(QWidget):
         nav_layout.addWidget(self.prev_button)
         nav_layout.addWidget(self.next_button)
         nav_layout.addLayout(self.jump_buttons_layout)
-
         layout.addLayout(nav_layout)
 
     def set_search_results(self, results):
@@ -292,11 +348,14 @@ class AudioTranscriptApp(QMainWindow):
 
         self.init_ui()
         self.restore_last_session()
+        self.model = TranscriptListModel(self.transcript, font_size=self.font_size)
 
         if not self.last_paths.get("help_shown"):
             self.show_help_box()
             self.last_paths["help_shown"] = True
             save_last_paths(self.last_paths)
+
+        self.transcript_lower = []
 
     def init_ui(self):
         self.setStyleSheet("* { font-size: 24pt; }")
@@ -318,7 +377,11 @@ class AudioTranscriptApp(QMainWindow):
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Live-Suche mit Sprungmarken ab 3 Zeichen…")
         self.search_bar.setFixedHeight(int(self.search_bar.sizeHint().height() * 1.5))
-        self.search_bar.textChanged.connect(self.live_search_with_markers)
+        self.search_timer = QTimer()
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(300)  # Millisekunden Verzögerung
+        self.search_bar.textChanged.connect(lambda: self.search_timer.start())
+        self.search_timer.timeout.connect(self.live_search_with_markers)
 
         # Enhanced Search Widget
         self.enhanced_search = EnhancedSearchWidget()
@@ -436,6 +499,8 @@ class AudioTranscriptApp(QMainWindow):
 
             subs = pysrt.open(filepath)
             self.transcript = [TranscriptEntry(s.start, s.end, s.text) for s in subs]
+            self.transcript_lower = [entry.text.lower() for entry in self.transcript]
+
             self.restore_full_transcript()
         except Exception as e:
             QMessageBox.warning(self, "Fehler", f"Transkript konnte nicht geladen werden: {e}")
@@ -447,33 +512,43 @@ class AudioTranscriptApp(QMainWindow):
             self.transcript_list.addItem(entry.text)
 
     def live_search_with_markers(self):
-        """Erweiterte Live-Suche mit Sprungmarken"""
+        """Optimierte Live-Suche mit Sprungmarken und effizientem UI-Update"""
         text = self.search_bar.text().strip()
-
-        # Fokus nicht verlieren
         self.search_bar.setFocus()
 
         if len(text) >= 3:
-            # Suche durchführen
-            results = []
             self.timeline_widget.clear_markers()
+            search_term = text.lower()
 
+            # Suchergebnisse und Marker sammeln
+            results = []
             for i, entry in enumerate(self.transcript):
-                if text.lower() in entry.text.lower():
+                if search_term in entry.text.lower():
                     results.append({'index': i, 'entry': entry, 'text': entry.text})
-                    marker_position = int(entry.start * 1000)  # Convert to ms
+                    marker_position = int(entry.start * 1000)
                     self.timeline_widget.add_marker(marker_position, entry.text[:50])
 
+            # Setze Treffer für Navigationsleiste
             self.enhanced_search.set_search_results(results)
-            self.search_text()
+
+            # Setze Highlight im Model und aktualisiere Widgets
+            self.model.set_search_term(text)
+            self.refresh_visible_items()
 
         elif len(text) == 0:
             self.timeline_widget.clear_markers()
             self.enhanced_search.clear_results()
-            self.restore_full_transcript()
+            self.model.set_search_term("")
+            self.refresh_visible_items()
 
-        # Fokus erneut setzen (zur Sicherheit)
         self.search_bar.setFocus()
+
+    def refresh_visible_items(self):
+        """Aktualisiert die Widgets der sichtbaren Einträge"""
+        for row in range(self.model.rowCount()):
+            index = self.model.index(row)
+            label = self.model.get_highlighted_label(index)
+            self.transcript_list.setIndexWidget(index, label)
 
     def update_highlight(self):
         if self.user_is_dragging or not self.transcript:
@@ -627,5 +702,3 @@ if __name__ == "__main__":
     window = AudioTranscriptApp()
     window.show()
     sys.exit(app.exec_())
-
-    # Bundestag
