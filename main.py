@@ -15,6 +15,7 @@ CONFIG_FILE = os.path.expanduser("./transplay_config.json")
 
 
 class TranscriptEntry:
+    """Repräsentiert einen einzelnen Transkriptionseintrag mit Start- und Endzeit sowie Text"""
     def __init__(self, start, end, text):
         self.start = self.to_seconds(start)
         self.end = self.to_seconds(end)
@@ -22,15 +23,22 @@ class TranscriptEntry:
 
     @staticmethod
     def to_seconds(t):
+        """
+        Konvertiert eine Zeitangabe in Sekunden
+        :param t: Zeitangabe als srt Zeitobjekt (start oder end) z.b: 00:01:23,456
+        :return: Zeit in Sekunden als float : z.B. 83.456
+        """
         return t.hours * 3600 + t.minutes * 60 + t.seconds + t.milliseconds / 1000.0
 
 
 def save_last_paths(data):
+    """Speichert die letzten Pfade und Einstellungen in einer JSON-Datei"""
     with open(CONFIG_FILE, 'w') as f:
         json.dump(data, f)
 
 
 def load_last_paths():
+    """Lädt die letzten Pfade und Einstellungen aus einer JSON-Datei"""
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, 'r') as f:
             return json.load(f)
@@ -158,6 +166,8 @@ class EnhancedSearchWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.result_label = None
+        self.next_button = None
         self.search_results = []  # Liste der gefundenen Einträge
         self.current_result = -1
 
@@ -410,12 +420,20 @@ class AudioTranscriptApp(QMainWindow):
             self.player.setPosition(position)
 
     def load_audio(self, filepath):
+        self.player.stop()  # Audio stoppen
+        self.timeline_widget.set_position(0)
+        self.timeline_widget.clear_markers()
+        self.play_button.setText("▶")  # UI zurücksetzen
         self.player.setMedia(QMediaContent(QUrl.fromLocalFile(filepath)))
-        self.player.stop()
         self.timer.start()
 
     def load_transcript(self, filepath):
         try:
+            self.transcript_list.clear()  # Vorherige Liste löschen
+            self.transcript = []  # Daten zurücksetzen
+            self.enhanced_search.clear_results()  # Suchstatus zurücksetzen
+            self.timeline_widget.clear_markers()  # Marker entfernen
+
             subs = pysrt.open(filepath)
             self.transcript = [TranscriptEntry(s.start, s.end, s.text) for s in subs]
             self.restore_full_transcript()
@@ -609,3 +627,5 @@ if __name__ == "__main__":
     window = AudioTranscriptApp()
     window.show()
     sys.exit(app.exec_())
+
+    # Bundestag
