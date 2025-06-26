@@ -1,17 +1,25 @@
+# Standardbibliotheken
 import sys
 import os
-import pysrt
 import json
 import re
+
+# Drittanbieter-Bibliotheken
+import pysrt
+
+# PyQt5
+from PyQt5.QtCore import (
+    Qt, QTimer, QUrl, pyqtSignal, QAbstractListModel, QModelIndex
+)
+from PyQt5.QtGui import (
+    QPainter, QPen, QBrush, QColor, QPixmap
+)
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QFileDialog, QAction, QListWidget,
-    QVBoxLayout, QWidget, QLineEdit, QHBoxLayout, QPushButton, QLabel, QSlider, QMessageBox, QListWidgetItem,
+    QApplication, QMainWindow, QFileDialog, QAction, QListWidget, QListWidgetItem,
+    QVBoxLayout, QHBoxLayout, QWidget, QLineEdit, QPushButton, QLabel,
+    QSlider, QMessageBox, QStatusBar
 )
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
-from PyQt5.QtCore import QUrl, QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QPainter, QPen, QBrush, QColor
-from PyQt5.QtCore import Qt, QAbstractListModel, QModelIndex
-from PyQt5.QtWidgets import QLabel
 
 CONFIG_FILE = os.path.expanduser("./transplay_config.json")
 
