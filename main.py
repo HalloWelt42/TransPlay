@@ -542,6 +542,7 @@ class AudioTranscriptApp(QMainWindow):
             self.refresh_visible_items()
 
         self.search_bar.setFocus()
+        self.search_text()
 
     def refresh_visible_items(self):
         """Aktualisiert die Widgets der sichtbaren Einträge"""
@@ -567,31 +568,51 @@ class AudioTranscriptApp(QMainWindow):
             self.play_button.setText("⏹")
 
     def search_text(self):
-        text = self.search_bar.text()
+        text = self.search_bar.text().strip()
         self.transcript_list.clear()
         pattern = re.compile(re.escape(text), re.IGNORECASE)
-        for entry in self.transcript:
-            item_text = entry.text
-            if text:
-                match = pattern.search(item_text)
-                if match:
-                    highlighted = (
-                            item_text[:match.start()] +
-                            '<span style="background-color:#66bb66;">' +
-                            item_text[match.start():match.end()] +
-                            '</span>' +
-                            item_text[match.end():]
+
+        total = len(self.transcript)
+        counter_label = QLabel("")
+        self.statusBar().addPermanentWidget(counter_label)
+
+        self.transcript_list.setUpdatesEnabled(False)
+
+        if total > 2000:
+            # Kein Highlighting bei großen Transkripten
+            for entry in self.transcript:
+                item = QListWidgetItem(entry.text)
+                item.setData(Qt.UserRole, entry.text)
+                item.setTextAlignment(Qt.AlignLeft)
+                self.transcript_list.addItem(item)
+            counter_label.setText("⚠ Zu viele Einträge für Markierung")
+        else:
+            for i, entry in enumerate(self.transcript):
+                item_text = entry.text
+                item = QListWidgetItem()
+                item.setData(Qt.UserRole, item_text)
+                item.setTextAlignment(Qt.AlignLeft)
+
+                if text:
+                    # Alle Vorkommen markieren
+                    highlighted = re.sub(
+                        pattern,
+                        lambda m: f'<span style="background-color:#66bb66;">{m.group(0)}</span>',
+                        item_text
                     )
-                    item = QListWidgetItem()
                     item.setData(Qt.DisplayRole, '')
-                    item.setData(Qt.UserRole, item_text)
-                    item.setTextAlignment(Qt.AlignLeft)
                     self.transcript_list.addItem(item)
                     self.transcript_list.setItemWidget(item, self.create_highlight_label(highlighted))
                 else:
-                    self.transcript_list.addItem(item_text)
-            else:
-                self.transcript_list.addItem(item_text)
+                    item.setText(item_text)
+                    self.transcript_list.addItem(item)
+
+                if i % 100 == 0 or i == total - 1:
+                    counter_label.setText(f"🔍 Suche: {i + 1}/{total}")
+                    QApplication.processEvents()
+
+        self.transcript_list.setUpdatesEnabled(True)
+        QTimer.singleShot(3000, lambda: self.statusBar().removeWidget(counter_label))
 
     def create_highlight_label(self, html_text):
         label = QLabel()
