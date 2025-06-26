@@ -1,1 +1,0 @@
-https://www.projekt-gutenberg.org/rilke/erzaehlg/chap005.html
